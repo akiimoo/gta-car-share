@@ -1,4 +1,30 @@
 <html lang="en" data-bs-theme="dark">
     <%- include("../preset/title.ejs"); %>
-    <%- include('../preset/body.ejs'); %>
+    <body>
+        <div class="container">
+            <nav class="navbar d-block">
+                <%- include("navbar.ejs"); %>
+                <ins style="width: 468px;height:60px" data-width="468" data-height="60" class="o64ab788ef9" data-domain="//data527.click" data-affquery="/4da230a3f56020aa7385/64ab788ef9/?placementName=default"> <script src="//data527.click/js/responsive.js" async></script></ins>
+                <div class="row row-cols-1 row-cols-lg-4 g-4 py-5 px-5">
+                    <% if (cars.lenght != 1) { %>
+                        <% cars.forEach(car => { %>
+                            <div class="card-group">
+                                <div class="card">
+                                    <div class="card text-bg-dark">
+                                        <a class="nav-link" href="download/<%= car.id %>">
+                                            <img src="images/<%= car.id %>.webp" class="card-img" style="max-width: 600px; max-height: 110px; object-fit: cover;" alt="photo of a gta vehicle" loading="lazy" />
+                                            <div class="card-img-overlay">
+                                                <h5 class="card-title"><%= car.name %></h5>
+                                                <p class="card-text"><small>Posted on <%= car.actualDate.toLocaleDateString({year: "numeric", month: "2-digit", day: "2-digit" }); %></small></p>
+                                            </div>
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        <% }); %>
+                    <% } %>
+                </div>
+            </nav>
+        </div>
+    </body>
 </html>

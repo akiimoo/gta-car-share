@@ -7,18 +7,58 @@ const path = require('path');
 const util = require('util');
 const writeFile = util.promisify(fs.writeFile);
 const sharp = require('sharp');
+const rateLimit = require('express-rate-limit');
 
 //create app
 const app = express();
 app.set('view engine', 'ejs');
+
+const rateLimiter = rateLimit({ //rate limiting for the overall website
+    windowMs: 15 * 60 * 1000,
+    max: 80,
+    message: {
+        error: 'Too many requests from this IP address',
+        retryAfter: '5 minutes',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        res.status(429).json({
+            error: 'Rate limit exceeded',
+            message: 'Too many requests from this IP, please try again in a few minutes',
+            retryAfter: Math.round(req.rateLimit.resetTime / 1000)
+        });
+    }
+});
+
+const uploadLimiter = rateLimit({ //rate limiting for the vehicle upload part
+    windowMs: 30 * 60 * 1000,
+    max: 5,
+    message: {
+        error: 'Too many requests from this IP address',
+        retryAfter: '15 minutes',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        res.status(429).json({
+            error: 'Rate limit exceeded',
+            message: 'Too many requests from this IP, please try again in a few minutes',
+            retryAfter: Math.round(req.rateLimit.resetTime / 1000)
+        });
+    }
+});
+
+// app.use(rateLimiter);
+// app.use('/upload', uploadLimiter);
 app.use(express.static("public"));
 app.use(express.json());
-app.use(express.urlencoded({ extended: true, limit: "500ko", parameterLimit: 500 }));
+app.use(express.urlencoded({ extended: true, limit: "1mb", /* parameterLimit: 500 */ }));
 app.use(morgan('dev'));
 app.use(fu());
 
 //connect to db
-mongoose.connect("")
+mongoose.connect("connection string to mongodb")
     .then(() => {
         app.listen(3333, () => {
             console.log("up and running !");
@@ -27,63 +67,51 @@ mongoose.connect("")
 
 const scheme = new mongoose.Schema({ //make new car schema
     name: String,
-    categorie: String,
+    category: String,
     actualDate: Date,
 }, { collection: 'cars' });
 
 const CarScheme = mongoose.model('CarScheme', scheme);
 
-app.get("", (req, res) => { //redirect to home page
-    res.redirect("/home");
-});
+let vehicleCategoryCount = {
+    commercial: 0, compact: 0, coupe: 0, emergency: 0, military: 0, motorcycle: 0, muscle: 0, offroad: 0,
+    openwheel: 0, plane: 0, sedan: 0, service: 0, sport: 0, sportclassic: 0, super: 0, suv: 0, other: 0
+}
 
-/* async function getCategoryLength() {
-    let vehicleCategory = {
-        commercial: 0, compact: 0, coupe: 0, emergency: 0, military: 0, motorcycle: 0, muscle: 0, offroad: 0,
-        openwheel: 0, plane: 0, sedan: 0, service: 0, sport: 0, sportclassic: 0, super: 0, suv: 0
-    }
-    fs.readdir("views/cars", { withFileTypes: true }, (error, files) => {
-        files.forEach(name => {
-            async function getToVehicleCategory() {
-                await CarScheme.find({ categorie: String(name['name']).split('.')[0] }).then(category => {
-                    vehicleCategory[String(name['name']).split('.')[0]] = category.length;
-                    console.log(vehicleCategory);
-                }).catch(error => console.log(error));
-            }
-            getToVehicleCategory();
-        });
+async function getCategoryLength() {
+    Object.keys(vehicleCategoryCount).forEach(name => {
+        name = name.toString();
+        async function getToVehicleCategory() {
+            await CarScheme.find({ category: name }).then(category => {
+                vehicleCategoryCount[name] = category.length;
+            }).catch(error => console.log(error));
+        }
+        getToVehicleCategory();
     });
-} not working :(*/ 
+}
 
-//get every single file in cars folder and make it an accessible page
-fs.readdir("views/cars", { withFileTypes: true }, (err, files) => {
-    if (!err) {
-        files.forEach((file) => {
-            let fileName = file.name.split(".");
-            let name = `${fileName[0]}`;
-            app.get(`/${fileName[0]}`, async (req, res) => {
-                let carList = [];
-                await CarScheme.find({ categorie: `${fileName[0]}` }).sort({ actualDate: -1 }).then(cars => cars.forEach(car => carList.push(car))).catch(error => console.log(error));
-                res.render(`cars/${fileName[0]}.ejs`, { title: `${fileName[0]}`.toUpperCase(), cars: carList});
-                carList.splice(0);
-            });
-        });
-    }
+// parse every category and looks if the url is requested
+Object.keys(vehicleCategoryCount).forEach(category => {
+    let categoryName = category.toString();
+    app.get(`/${categoryName}`, async (req, res) => {
+        let carList = [];
+        getCategoryLength();
+        await CarScheme.find({category: categoryName }).sort({ actualDate: -1 }).then(cars => cars.forEach(car => carList.push(car))).catch(error => console.log(error));
+        res.render('preset/carBodyPreset.ejs', {title: categoryName, cars: carList, vehiclesCategoryLen: vehicleCategoryCount}); //serves the page with the vehicles from the requested category
+        carList.splice(0);
+    });
 });
 
-
-
-async function saveToDB(name, categorie, fileBuffer, fileName, imageBuffer, imageName) {
+async function saveToDB(name, category, fileBuffer, fileName, imageBuffer, imageName) {
     let myID;
     await CarScheme.create({
         name: name,
-        categorie: categorie,
+        category: category,
         actualDate: Date.now(),
     }).then(object => {
             console.log("Successfully saved to db");
             myID = object.id;
     }).catch(error => console.log(error));
-    
     await writeFile(`./public/images/${myID}.${imageName}`, imageBuffer, (error) => {
         if (!error) 
             console.log("File saved with success !");
@@ -104,6 +132,7 @@ async function saveToDB(name, categorie, fileBuffer, fileName, imageBuffer, imag
 }
 
 app.post("/upload", (req, res) => {
+    getCategoryLength();
     let ss = req.files;
     let mimetype = ss['vehicleImage'].mimetype;
     const extensions = ["image/png", "image/jpeg", "image/webp", "image/jpg"];
@@ -112,6 +141,7 @@ app.post("/upload", (req, res) => {
         console.log(ext[1]);
         let inputBuffer = ss['vehicleImage']['data'];
         let outputName = ss['vehicleImage']['name'];
+        //converting the image to the lightweight .webp formatt
         sharp(inputBuffer).toFile(`${outputName}.webp`, (error, info) => {
             if (!error) {
                 console.log(info);
@@ -120,13 +150,9 @@ app.post("/upload", (req, res) => {
                 throw error;
             }
         });
-        saveToDB(req.body['vehicleName'],
-            req.body['categorie'],
-            ss['vehicleFile']['data'],
-            ss['vehicleFile']['name'],
-            inputBuffer, outputName);
+        saveToDB(req.body['vehicleName'], req.body['categorie'], ss['vehicleFile']['data'], ss['vehicleFile']['name'], inputBuffer, outputName);
     }
-    res.redirect(`${req.body['categorie']}`);
+    res.redirect(`/${req.body['categorie']}`);
 });
 
 app.get("/download/:id", async (req, res) => {
@@ -162,19 +188,26 @@ app.get("/download/:id", async (req, res) => {
     });
 });
 
+app.get("", (req, res) => { //redirect to home page
+    res.redirect("/home");
+});
+
 app.get("/home", (req, res) => {
-    //getCategoryLength();
-    res.render('home.ejs', { title: "HOME"}); //home page
+    getCategoryLength();
+    res.render('home.ejs', { title: "HOME", vehiclesCategoryLen: vehicleCategoryCount });
 });
 
 app.get("/upload", (req, res) => {
-    res.render("upload.ejs", { title: "UPLOAD"});
+    getCategoryLength();
+    res.render("upload.ejs", { title: "UPLOAD", vehiclesCategoryLen: vehicleCategoryCount });
 });
 
 app.get("/privacy", (req, res) => {
-    res.render("privacy.ejs", { title: "PRIVACY"});
+    getCategoryLength();
+    res.render("privacy.ejs", { title: "PRIVACY", vehiclesCategoryLen: vehicleCategoryCount });
 });
 
 app.get("/about", (req, res) => {
-    res.render("about.ejs", { title: "ABOUT"});
+    getCategoryLength();
+    res.render("about.ejs", { title: "ABOUT", vehiclesCategoryLen: vehicleCategoryCount });
 });
