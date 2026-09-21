@@ -150,9 +150,9 @@ app.post("/upload", (req, res) => {
                 throw error;
             }
         });
-        saveToDB(req.body['vehicleName'], req.body['categorie'], ss['vehicleFile']['data'], ss['vehicleFile']['name'], inputBuffer, outputName);
+        saveToDB(req.body['vehicleName'], req.body['category'], ss['vehicleFile']['data'], ss['vehicleFile']['name'], inputBuffer, outputName);
     }
-    res.redirect(`/${req.body['categorie']}`);
+    res.redirect(`/${req.body['category']}`);
 });
 
 app.get("/download/:id", async (req, res) => {
